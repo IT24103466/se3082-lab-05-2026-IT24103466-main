@@ -1,0 +1,100 @@
+Lab 05 - Exercise 7: Area of the Mandelbrot Set
+
+Compile and run:
+    gcc -O2 -fopenmp mandel.c -o mandel.o -lm
+    OMP_NUM_THREADS=1 ./mandel.o serial
+    OMP_NUM_THREADS=<threads> ./mandel.o block          (threads = 1, 2, 3, 4)
+    OMP_NUM_THREADS=4 ./mandel.o <static|static1|dynamic|guided>
+
+------------------------------------------------------------------------------
+Method
+------------------------------------------------------------------------------
+A grid of NPOINTS x NPOINTS = 2000 x 2000 points c = cr + ci*i is generated in the box
+cr in [-2.0, 0.5], ci in [0, 1.125] (the upper half of the symmetric Mandelbrot set;
+eps = 1e-5 is added to avoid points exactly on the boundary). For each point,
+z = z*z + c, starting at z = c, is iterated at most MAXITER = 2000 times. If |z| > 2 within
+that number of iterations the point is OUTSIDE the set; otherwise it is INSIDE. The area
+is estimated as
+
+    area = 2 * (box area) * (points inside) / (total points)
+         = 2 * 2.5 * 1.125 * inside / (2000 * 2000)
+
+(the factor 2 because only the upper half was sampled).
+
+------------------------------------------------------------------------------
+Parallelisation
+------------------------------------------------------------------------------
+Following the instructions of the sheet:
+1. A parallel region is started before the main loop, with numoutside as a reduction
+   variable. The loop variables and the values of z and c (i, j, cr, ci, zr, zi, t) are
+   declared inside the region, so they are private to each thread.
+2. The outermost loop (over i) is divided into equal blocks by hand using the library
+   routines omp_get_num_threads() and omp_get_thread_num():
+
+    #pragma omp parallel reduction(+:numoutside)
+    {
+        int nt = omp_get_num_threads(), id = omp_get_thread_num();
+        int lo = id * NPOINTS / nt, hi = (id + 1) * NPOINTS / nt;   /* equal block */
+        for (int i = lo; i < hi; i++)
+            for (int j = 0; j < NPOINTS; j++) {
+                ... iterate z = z*z + c up to MAXITER times ...
+                numoutside += out;      /* out = 1 if the point escaped */
+            }
+    }
+
+The reduction clause gives every thread its own copy of numoutside and adds the copies
+together at the end, so there is no data race and no critical section is needed.
+
+------------------------------------------------------------------------------
+Results with 1, 2, 3 and 4 threads (equal blocks of the outer loop)
+------------------------------------------------------------------------------
+ Threads | Points inside | Area      | Time (s) | Speedup (serial time 7.271 s)
+ serial  |   1073255     | 1.509265  |  7.271   |  1.00
+    1    |   1073255     | 1.509265  |  7.407   |  0.98
+    2    |   1073255     | 1.509265  |  6.292   |  1.16
+    3    |   1073255     | 1.509265  |  4.725   |  1.54
+    4    |   1073255     | 1.509265  |  3.486   |  2.09
+
+The results are identical in every case (1073255 points inside, area 1.509265), so the
+parallel program is correct. (The area agrees with the accepted value of about 1.5066 to
+within the error of this finite grid and iteration count.)
+
+The speedup is well below the number of threads (2.09 with 4 threads) although the
+calculation has no dependencies between points. The reason is LOAD IMBALANCE: the
+cost of a point is very different. A point outside the set escapes after a few iterations,
+but a point inside the set needs all 2000 iterations. The points inside the set are
+concentrated in the middle of the range of cr, so with equal blocks of consecutive
+values of i the threads that get the middle columns do most of the work while the threads
+that get the edge columns finish early and wait. The total time is the time of the slowest
+thread.
+
+------------------------------------------------------------------------------
+Extra exercise: different ways of mapping iterations to threads (4 threads)
+------------------------------------------------------------------------------
+#pragma omp parallel for schedule(runtime) reduction(+:numoutside) on the outer loop,
+with the schedule set by omp_set_schedule:
+
+ Schedule             | Area      | Time (s) | Speedup
+ static (equal blocks)| 1.509265  |  3.422   |  2.12
+ static,1 (round robin)| 1.509265 |  1.976   |  3.68
+ dynamic,1            | 1.509265  |  1.892   |  3.84
+ guided               | 1.509265  |  1.993   |  3.65
+
+All schedules give the same area, so the correct answer does not depend on the schedule.
+
+- static (default): each thread gets one big block of consecutive columns, which gives the
+  same load imbalance as the manual blocks (3.4 s, matching the manual version).
+- static,1: the columns are dealt out one at a time in turn (thread 0, 1, 2, 3, 0, 1, ...),
+  so every thread gets a mixture of cheap edge columns and expensive middle columns. The
+  load is nearly equal and the time almost halves (1.98 s, speedup 3.68), at no extra
+  scheduling cost.
+- dynamic,1: a thread that finishes a column takes the next free one from a work queue,
+  so faster threads automatically do more columns. It was the fastest (1.89 s, speedup
+  3.84, close to the 4 threads used). It has a small overhead for each request for work, but
+  each column is large enough (2000 points with many iterations) for it to be negligible.
+- guided: chunks start large and get smaller; it balances the load almost as well as
+  dynamic (1.99 s), but the first large chunks can still be unbalanced.
+
+Conclusion: when the cost of the iterations is uneven, as for the Mandelbrot set, an
+interleaved (static,1) or dynamic schedule is much better than equal blocks; static equal
+blocks are best only when every iteration costs the same.

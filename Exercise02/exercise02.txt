@@ -1,0 +1,68 @@
+Lab 05 - Exercise 2: #pragma omp single
+
+Compile and run:
+    gcc -O2 -fopenmp ex2.c -o ex2.o
+    OMP_NUM_THREADS=4 ./ex2.o
+    OMP_NUM_THREADS=8 ./ex2.o
+
+------------------------------------------------------------------------------
+Output with 4 threads
+------------------------------------------------------------------------------
+thread # 1
+Inside Single # 1
+Exiting Single 
+thread # 2
+thread # 0
+thread # 3
+Hi again from thread # 0
+Hi again from thread # 1
+Hi again from thread # 2
+Hi again from thread # 3
+
+------------------------------------------------------------------------------
+Output with 8 threads
+------------------------------------------------------------------------------
+thread # 1
+Inside Single # 1
+Exiting Single 
+thread # 6
+thread # 7
+thread # 5
+thread # 4
+thread # 2
+thread # 3
+thread # 0
+Hi again from thread # 5
+Hi again from thread # 2
+Hi again from thread # 0
+Hi again from thread # 4
+Hi again from thread # 3
+Hi again from thread # 6
+Hi again from thread # 1
+Hi again from thread # 7
+
+------------------------------------------------------------------------------
+How #pragma omp single works in this program
+------------------------------------------------------------------------------
+#pragma omp parallel creates a team of threads and every thread executes the parallel
+block, so every thread prints "thread # n" and "Hi again from thread # n" (4 or 8 times
+each in the outputs above).
+
+The block after #pragma omp single is executed by ONE thread only. The first thread of
+the team that reaches the single construct executes it and all the other threads skip it.
+So "Inside Single # n" and "Exiting Single" are printed exactly once, not once per
+thread, however many threads there are (4 or 8). In both runs the thread that executed
+the block was thread 1, because it arrived first. It is not necessarily thread 0 and it
+can be a different thread in another run (this is the difference from #pragma omp master,
+which always uses thread 0).
+
+There is an implicit barrier at the end of a single construct (unless the nowait clause
+is used). The threads that skipped the block wait at the end of it until the executing
+thread has finished it and all threads have arrived. The output shows this: no "Hi again"
+line is printed before every thread has printed "thread # n" and the single block has
+finished; all the "Hi again" lines come after the "Exiting Single" line. The order of
+the "Hi again" lines themselves is not fixed, since the threads run concurrently.
+
+Use: single is used for work that must be done only once inside a parallel region, such as
+printing a message, reading input or initialising shared data, while still allowing the
+other threads to wait until it is complete.

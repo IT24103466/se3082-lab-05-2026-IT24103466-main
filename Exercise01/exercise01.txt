@@ -1,0 +1,74 @@
+Lab 05 - Exercise 1: #pragma omp barrier
+
+Compile and run:
+    gcc -O2 -fopenmp ex1.c -o ex1.o
+    OMP_NUM_THREADS=4 ./ex1.o
+    OMP_NUM_THREADS=8 ./ex1.o
+
+------------------------------------------------------------------------------
+Output with 4 threads
+------------------------------------------------------------------------------
+thread # 2
+thread # 0
+thread # 1
+thread # 3
+Outside Barrier # 1
+Hi again from thread # 1
+Outside Barrier # 2
+Hi again from thread # 2
+Outside Barrier # 3
+Hi again from thread # 3
+Outside Barrier # 0
+Hi again from thread # 0
+
+------------------------------------------------------------------------------
+Output with 8 threads
+------------------------------------------------------------------------------
+thread # 1
+thread # 3
+thread # 5
+thread # 7
+thread # 0
+thread # 4
+thread # 2
+thread # 6
+Outside Barrier # 2
+Hi again from thread # 2
+Outside Barrier # 7
+Hi again from thread # 7
+Outside Barrier # 6
+Hi again from thread # 6
+Outside Barrier # 5
+Hi again from thread # 5
+Outside Barrier # 1
+Hi again from thread # 1
+Outside Barrier # 3
+Hi again from thread # 3
+Outside Barrier # 0
+Hi again from thread # 0
+Outside Barrier # 4
+Hi again from thread # 4
+
+------------------------------------------------------------------------------
+How #pragma omp barrier works in this program
+------------------------------------------------------------------------------
+#pragma omp parallel creates a team of threads (4 or 8 here, set with OMP_NUM_THREADS),
+and every thread executes the whole block. Each thread first prints "thread # n".
+
+#pragma omp barrier is a synchronisation point. A thread that reaches it stops and waits
+until ALL threads of the team have reached it; only then do all of them continue.
+
+The output shows this: every "thread # n" line (4 or 8 lines) is printed before the
+first "Outside Barrier" line, so no thread started the code after the barrier before the
+slowest thread had finished the code before it. With 8 threads, all eight "thread # n"
+lines appear first, then all the "Outside Barrier" and "Hi again" lines.
+
+The order inside each group is different from the thread number order and changes from
+run to run, because the threads run concurrently and are scheduled by the operating
+system; the barrier controls only the order BETWEEN the two phases, not the order of
+the threads within a phase. Also "Outside Barrier # n" is followed by "Hi again from
+thread # n" for the same thread, but lines from different threads can be interleaved
+after the barrier.
+
+Without the barrier, a fast thread could print "Outside Barrier" before a slow thread has
+printed "thread # n", and the two kinds of lines would be mixed together.

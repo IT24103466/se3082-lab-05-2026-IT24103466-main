@@ -1,0 +1,73 @@
+Lab 05 - Exercise 3: #pragma omp master
+
+Compile and run:
+    gcc -O2 -fopenmp ex3.c -o ex3.o
+    OMP_NUM_THREADS=4 ./ex3.o
+    OMP_NUM_THREADS=8 ./ex3.o
+
+(The closing brace of main() missing in the sheet's listing was added so that the program
+compiles.)
+
+------------------------------------------------------------------------------
+Output with 4 threads
+------------------------------------------------------------------------------
+thread # 0
+Inside Master # 0
+Exiting Master 
+Hi again from thread # 0
+thread # 2
+Hi again from thread # 2
+thread # 1
+Hi again from thread # 1
+thread # 3
+Hi again from thread # 3
+
+------------------------------------------------------------------------------
+Output with 8 threads
+------------------------------------------------------------------------------
+thread # 4
+Hi again from thread # 4
+thread # 0
+Inside Master # 0
+Exiting Master 
+Hi again from thread # 0
+thread # 7
+Hi again from thread # 7
+thread # 5
+Hi again from thread # 5
+thread # 2
+Hi again from thread # 2
+thread # 6
+Hi again from thread # 6
+thread # 1
+Hi again from thread # 1
+thread # 3
+Hi again from thread # 3
+
+------------------------------------------------------------------------------
+How #pragma omp master works in this program
+------------------------------------------------------------------------------
+#pragma omp parallel creates a team of threads and every thread executes the parallel
+block, so every thread prints "thread # n" and "Hi again from thread # n".
+
+The block after #pragma omp master is executed ONLY by the master thread, which is
+always thread number 0, and all the other threads skip it. So "Inside Master # 0" and
+"Exiting Master" are printed exactly once, and the number printed is always 0, in every
+run and for any number of threads (4 or 8). Compare this with #pragma omp single, where
+the thread that runs the block can be any thread (the first to arrive).
+
+There is NO implicit barrier at the start or at the end of a master construct. The
+other threads do not wait for the master thread; they go straight on to
+"Hi again from thread # n". The output shows this: in the 8 thread run, thread 4 printed
+"thread # 4" and "Hi again from thread # 4" BEFORE thread 0 had even printed "thread # 0"
+and run its master block, and other threads (7, 5, 2, ...) printed "Hi again" lines while
+or after the master block was being run. So "Inside Master" and "Exiting Master" can
+appear in the middle of the other threads' output, and the order of the lines changes
+from run to run.
+
+If the other threads must wait until the master block is finished, an explicit
+#pragma omp barrier has to be placed after it; this is the difference from
+#pragma omp single, which has the implicit barrier at the end.
+
+Use: master is used for work that should be done once by thread 0 (for example printing a
+progress message or setting a value), when no waiting of the other threads is needed.

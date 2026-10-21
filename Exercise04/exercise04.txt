@@ -1,0 +1,79 @@
+Lab 05 - Exercise 4: #pragma omp parallel for  and  #pragma omp parallel for collapse(2)
+
+Compile and run:
+    gcc -O2 -fopenmp ex4.c -o ex4.o
+    gcc -O2 -fopenmp ex4_collapse.c -o ex4_collapse.o
+    OMP_NUM_THREADS=4 ./ex4.o | sort -k3,3n -k6,6n
+    OMP_NUM_THREADS=4 ./ex4_collapse.o | sort -k3,3n -k6,6n
+    (and the same with OMP_NUM_THREADS=8)
+The output is sorted by r and k so that the thread for each (r, k) pair is easy to read.
+Each program prints 50 lines (5 values of r x 10 values of k).
+
+------------------------------------------------------------------------------
+Results: which thread executed which iterations
+------------------------------------------------------------------------------
+1) "#pragma omp parallel for" (only the outer loop r is shared out)
+
+ 4 threads                                8 threads
+  Thread 0: r = 1, r = 2 (20 iterations)   Thread 0: r = 1 (k = 1..10)
+  Thread 1: r = 3        (10)              Thread 1: r = 2
+  Thread 2: r = 4        (10)              Thread 2: r = 3
+  Thread 3: r = 5        (10)              Thread 3: r = 4
+                                           Thread 4: r = 5
+                                           Threads 5, 6, 7: nothing (idle)
+
+2) "#pragma omp parallel for collapse(2)" (the 5 x 10 = 50 (r, k) pairs are shared out)
+
+ 4 threads
+  Thread 0: (r=1,k=1)  to (r=2,k=3)    13 iterations
+  Thread 1: (r=2,k=4)  to (r=3,k=6)    13 iterations
+  Thread 2: (r=3,k=7)  to (r=4,k=8)    12 iterations
+  Thread 3: (r=4,k=9)  to (r=5,k=10)   12 iterations
+
+ 8 threads
+  Thread 0: (1,1)  to (1,7)    7 iterations
+  Thread 1: (1,8)  to (2,4)    7 iterations
+  Thread 2: (2,5)  to (2,10)   6 iterations
+  Thread 3: (3,1)  to (3,6)    6 iterations
+  Thread 4: (3,7)  to (4,2)    6 iterations
+  Thread 5: (4,3)  to (4,8)    6 iterations
+  Thread 6: (4,9)  to (5,4)    6 iterations
+  Thread 7: (5,5)  to (5,10)   6 iterations
+
+------------------------------------------------------------------------------
+1. How the threads are generated for the code with #pragma omp parallel for
+------------------------------------------------------------------------------
+#pragma omp parallel for creates a team of threads (OMP_NUM_THREADS = 4 or 8) and
+divides the iterations of the loop directly after it, i.e. the OUTER loop over r, among
+the threads. The default schedule is static: the iterations are divided into
+contiguous blocks that are as equal as possible and given to the threads before the loop
+starts, in order of thread number.
+
+There are only 5 iterations of r. With 4 threads the blocks are 2, 1, 1, 1 iterations:
+thread 0 takes r = 1 and 2, and threads 1, 2 and 3 take r = 3, 4 and 5. With 8 threads
+there are more threads than iterations, so only 5 threads (0 to 4) get one value of r each
+and threads 5, 6 and 7 get no work and stay idle.
+
+The inner loop over k is not shared out; it is run completely (k = 1..10) by the thread
+that owns that value of r, so all 10 lines for one value of r show the same thread number.
+The work is therefore unbalanced with 4 threads (thread 0 does 20 iterations, the others
+10) and the parallelism is limited to 5 threads, however many threads are available.
+
+------------------------------------------------------------------------------
+2. How the threads are generated with #pragma omp parallel for collapse(2)
+------------------------------------------------------------------------------
+collapse(2) combines the two nested loops into a single iteration space of
+5 x 10 = 50 iterations (all (r, k) pairs) and divides THAT space among the threads, again
+with the default static schedule: contiguous blocks of nearly equal size.
+
+With 4 threads each thread gets 13, 13, 12 and 12 iterations; with 8 threads 7, 7, 6, 6, 6,
+6, 6 and 6 iterations. Because the blocks cut across the rows, one value of r can be
+split between two threads (for example r = 2 is shared by threads 0 and 1 with 4
+threads, and r = 1 by threads 0 and 1 with 8 threads), and every thread (all 8) receives
+work.
+
+Comparison: without collapse the amount of parallelism is limited by the 5 iterations of
+the outer loop (3 of the 8 threads idle, and uneven load with 4 threads). With collapse(2)
+there are 50 iterations to share, so the load is almost perfectly balanced and all
+threads are used. collapse is useful when the outer loop has few iterations compared with
+the number of threads. The loops must be perfectly nested for collapse to be allowed.

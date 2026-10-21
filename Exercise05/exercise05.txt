@@ -1,0 +1,78 @@
+Lab 05 - Exercise 5: Fibonacci series with task parallelism
+
+Compile and run:
+    gcc -O2 -fopenmp fib.c -o fib.o
+    OMP_NUM_THREADS=<threads> ./fib.o 40
+
+------------------------------------------------------------------------------
+Parallel code
+------------------------------------------------------------------------------
+int fib_serial(int n) { return n < 2 ? n : fib_serial(n - 1) + fib_serial(n - 2); }
+
+int fib(int n) {
+    int i, j;
+    if (n < 2) return n;
+    if (n < 20) return fib_serial(n);      /* cutoff: no tasks for small problems */
+
+    #pragma omp task shared(i)
+    i = fib(n - 1);
+
+    #pragma omp task shared(j)
+    j = fib(n - 2);
+
+    #pragma omp taskwait
+    return i + j;
+}
+
+int main() {
+    ...
+    #pragma omp parallel
+    {
+        #pragma omp single
+        r = fib(n);
+    }
+}
+
+------------------------------------------------------------------------------
+How it works
+------------------------------------------------------------------------------
+- #pragma omp parallel creates the team of threads. #pragma omp single makes ONE thread
+  start the first call fib(n); the other threads do not call it, they wait in the pool
+  and execute tasks that are created.
+- Each call fib(n) creates two tasks: one for fib(n-1) and one for fib(n-2). These are
+  independent recursive calls, so any free thread of the team can pick them up and run
+  them. Those calls create further tasks, so the recursion tree is spread over the
+  threads.
+- i and j are declared shared in the tasks, because a task would otherwise get a private
+  copy and the result written by the task would be lost for the parent.
+- #pragma omp taskwait makes the parent wait until its two child tasks have finished
+  before "return i + j", because the sum needs both results.
+- Cutoff: for n < 20 the plain serial function is used. Without the cutoff, millions of
+  very small tasks would be created and the task creation and scheduling cost would be
+  larger than the work in each task, making the program slower than serial.
+
+------------------------------------------------------------------------------
+Results: fib(40) = 102334155 (correct in every run)
+------------------------------------------------------------------------------
+ Threads | Serial time (s) | Parallel time (s) | Speedup (serial / parallel)
+    1    |     0.195       |      0.214        |  0.91
+    2    |     0.200       |      0.141        |  1.41
+    4    |     0.187       |      0.100        |  1.86
+    8    |     0.189       |      0.083        |  2.29
+
+The parallel result equals the serial result (102334155) for every number of threads.
+
+------------------------------------------------------------------------------
+Discussion
+------------------------------------------------------------------------------
+- With 1 thread the task version is slightly slower than serial (speedup 0.91) because
+  of the cost of creating and managing the tasks, with no parallelism to pay it back.
+- The speedup grows with the number of threads (1.41, 1.86, 2.29), so the tasks are being
+  shared among the threads. The speedup is below the number of threads because the
+  machine has 4 physical cores (8 hardware threads); the gain from 4 to 8 threads is small
+  since two hardware threads share one core. Task creation and waiting (taskwait) also
+  have an overhead, and the part of the tree below the cutoff is run serially inside
+  each task.
+- Fibonacci is a good example of task parallelism because the recursion tree is
+  irregular, not a simple loop with a known number of iterations, so "parallel for"
+  could not be used.
